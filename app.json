@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fulltomo.myexpoapp",
+      "infoPlist": {
+        "NSMotionUsageDescription": "迷路ゲームでボールを操作するために端末の傾きを使用します"
+      }
     },
     "android": {
       "adaptiveIcon": {
