@@ -1,7 +1,8 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { Canvas, Circle, Rect as SkiaRect } from '@shopify/react-native-skia';
 import * as Haptics from 'expo-haptics';
 import { Accelerometer } from 'expo-sensors';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { runOnJS, useFrameCallback, useSharedValue } from 'react-native-reanimated';
 
@@ -10,7 +11,7 @@ import { shouldTriggerWallHaptic } from './haptics-gate';
 import { BALL_RADIUS, GOAL, MAZE_HEIGHT, MAZE_WIDTH, START_POSITION, WALLS } from './maze-data';
 
 const TILT_SENSITIVITY = 900; // px/s^2 (1g傾き相当あたりの加速度)
-const FRICTION_PER_FRAME = 0.995;
+const FRICTION_PER_SECOND = 0.75; // 0.995^60 ≈ 0.74 (60fps基準の体感を維持)
 const MAX_SPEED = 260; // px/s
 const HAPTIC_COOLDOWN_MS = 150;
 
@@ -31,15 +32,6 @@ export function MazeGame() {
   const gameStatus = useSharedValue<'playing' | 'won'>('playing');
   const [showWinOverlay, setShowWinOverlay] = useState(false);
 
-  useEffect(() => {
-    Accelerometer.setUpdateInterval(16);
-    const subscription = Accelerometer.addListener(({ x, y }) => {
-      tiltX.value = x;
-      tiltY.value = -y;
-    });
-    return () => subscription.remove();
-  }, [tiltX, tiltY]);
-
   const fireWallHaptic = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   }, []);
@@ -52,19 +44,20 @@ export function MazeGame() {
     setShowWinOverlay(true);
   }, []);
 
-  useFrameCallback((frameInfo) => {
+  const frameCallback = useFrameCallback((frameInfo) => {
     if (gameStatus.value !== 'playing') {
       return;
     }
-    const dt = (frameInfo.timeSincePreviousFrame ?? 16) / 1000;
+    const dt = Math.min((frameInfo.timeSincePreviousFrame ?? 16) / 1000, 1 / 30);
+    const frictionFactor = Math.pow(FRICTION_PER_SECOND, dt);
 
     velocityX.value = clamp(
-      (velocityX.value + tiltX.value * TILT_SENSITIVITY * dt) * FRICTION_PER_FRAME,
+      (velocityX.value + tiltX.value * TILT_SENSITIVITY * dt) * frictionFactor,
       -MAX_SPEED,
       MAX_SPEED
     );
     velocityY.value = clamp(
-      (velocityY.value + tiltY.value * TILT_SENSITIVITY * dt) * FRICTION_PER_FRAME,
+      (velocityY.value + tiltY.value * TILT_SENSITIVITY * dt) * frictionFactor,
       -MAX_SPEED,
       MAX_SPEED
     );
@@ -112,6 +105,23 @@ export function MazeGame() {
       runOnJS(handleWin)();
     }
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      frameCallback.setActive(true);
+
+      Accelerometer.setUpdateInterval(16);
+      const subscription = Accelerometer.addListener(({ x, y }) => {
+        tiltX.value = x;
+        tiltY.value = -y;
+      });
+
+      return () => {
+        frameCallback.setActive(false);
+        subscription.remove();
+      };
+    }, [frameCallback, tiltX, tiltY])
+  );
 
   const resetGame = useCallback(() => {
     ballX.value = START_POSITION.x;
