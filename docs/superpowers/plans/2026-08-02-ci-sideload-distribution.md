@@ -4,9 +4,9 @@
 
 **Goal:** GitHub Actions上でiOS向けの未署名IPAをビルドし、Sideloadlyでローカル実機にサイドロードできるようにする。あわせて現在ローカルのみのリポジトリをパブリックなGitHubリポジトリとして公開する。
 
-**Architecture:** `macos-14` runner上で`expo prebuild --platform ios`によりネイティブプロジェクトを生成し、コード署名を無効化した`xcodebuild build`で`.app`を生成、それを`Payload/`にまとめてzip化し`.ipa`として`actions/upload-artifact`で公開する。GitHub Actionsのシークレットは一切使用せず、Apple IDによる署名はユーザーがローカルのSideloadlyで行う。
+**Architecture:** `macos-15` runner上でXcode最新安定版を明示選択した上で`expo prebuild --platform ios`によりネイティブプロジェクトを生成し、コード署名を無効化した`xcodebuild build`で`.app`を生成、それを`Payload/`にまとめてzip化し`.ipa`として`actions/upload-artifact`で公開する。GitHub Actionsのシークレットは一切使用せず、Apple IDによる署名はユーザーがローカルのSideloadlyで行う。
 
-**Tech Stack:** GitHub Actions（`macos-14`）、Xcode CLI（`xcodebuild`）、`gh` CLI（リポジトリ作成）
+**Tech Stack:** GitHub Actions（`macos-15` + Xcode最新安定版明示選択）、Xcode CLI（`xcodebuild`）、`gh` CLI（リポジトリ作成）
 
 参照設計書: `docs/superpowers/specs/2026-08-02-gyro-maze-game-design.md`
 
@@ -19,7 +19,7 @@
 - ビルド対象はiOSのみ（Androidのサイドロード配布は対象外）。
 - CIは**未署名**の`.ipa`を生成する。GitHub Actionsのシークレット（Apple ID、パスワード、証明書等）は一切使用しない。
 - ワークフローのトリガーは`push`（`main`ブランチ）と`workflow_dispatch`（手動実行）。
-- 実行環境は`macos-14`。
+- 実行環境は`macos-15`。Xcodeは`maxim-lobanov/setup-xcode@v1`で最新安定版を明示的に選択する（`macos-14`のデフォルトXcode 15.4はReact Native 0.81が要求する16.1未満のため実行時に判明し、`macos-15`+明示選択に変更した）。
 - リポジトリは`gh repo create my-expo-app --public`でパブリックとして作成する。
 
 ---
@@ -48,15 +48,20 @@ name: iOS Unsigned Build (Sideloadly)
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   workflow_dispatch: {}
 
 jobs:
   build-ipa:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -82,7 +87,7 @@ jobs:
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_IDENTITY="" \
+            CODE_SIGN_IDENTITY="" \
             EXPANDED_CODE_SIGN_IDENTITY="" \
             EXPANDED_CODE_SIGN_IDENTITY_NAME="" \
             EXPANDED_PROVISIONING_PROFILE=""
@@ -101,6 +106,8 @@ jobs:
           name: MyExpoApp-unsigned-ipa
           path: MyExpoApp.ipa
 ```
+
+（実装時の注記: 当初`branches: [main]`としていたが、このリポジトリのデフォルトブランチが`master`だったため変更。また`macos-14`のデフォルトXcodeが15.4でReact Native 0.81の要求（16.1以上）を満たさずビルド失敗したため、`macos-15`への変更と`maxim-lobanov/setup-xcode@v1`によるXcode明示選択を追加した。）
 
 - [ ] **Step 3: YAML構文が正しいことをローカルで確認**
 
